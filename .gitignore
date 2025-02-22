@@ -1,0 +1,15 @@
+/.libs
+/*.la
+/*.lo
+/*.php
+/autom4te.cache
+/build
+/config.*
+!/config.m4
+/configure*
+/libtool
+/Makefile*
+/modules
+/php_test_results_*.txt
+/*.dep
+/*.loT
