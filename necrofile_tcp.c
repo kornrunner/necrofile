@@ -1,5 +1,5 @@
 #include "necrofile_tcp.h"
-#include "necrofile_shm.h"
+#include "necrofile_redis.h"
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <sys/epoll.h>
@@ -70,61 +70,45 @@ int add_socket_to_epoll(int epoll_fd, int tcp_server_fd)
 
 void handle_client_connection(int client_fd)
 {
-    pthread_rwlock_rdlock(&shm_rwlock);
+    redisReply *reply = redisCommand(redis_context, "SMEMBERS %s", REDIS_SET_KEY);
 
-    if (shm_ptr) {
-        shm_header *header = (shm_header *)shm_ptr;
-        smart_str json = {0};
-        smart_str_appendc(&json, '[');
-
-        for (size_t j = 0; j < header->count; j++) {
-            if (j > 0) {
-                smart_str_appendl(&json, ",\n", 2);
-            }
-
-            smart_str_appendc(&json, '"');
-            smart_str_appendl(&json, shm_ptr + header->paths_offset[j], header->paths_length[j]);
-            smart_str_appendc(&json, '"');
-        }
-
-        smart_str_appendc(&json, ']');
-        smart_str_0(&json);
-
-        size_t total_sent = 0;
-        while (total_sent < json.s->len) {
-            ssize_t sent = write(client_fd, json.s->val + total_sent, json.s->len - total_sent);
-            if (sent < 0) {
-                if (errno == EINTR) {
-                    continue;
-                }
-                php_error_docref(NULL, E_WARNING, "Failed to write to client socket: %s", strerror(errno));
-                smart_str_free(&json);
-                pthread_rwlock_unlock(&shm_rwlock);
-                close(client_fd);
-                return;
-            }
-            if (sent == 0) {
-                php_error_docref(NULL, E_WARNING, "Client connection closed unexpectedly");
-                smart_str_free(&json);
-                pthread_rwlock_unlock(&shm_rwlock);
-                close(client_fd);
-                return;
-            }
-            total_sent += sent;
-        }
-
-        smart_str_free(&json);
-    } else {
+    if (!reply) {
         const char *response = "[]";
         ssize_t sent = write(client_fd, response, strlen(response));
         if (sent < 0) {
-            php_error_docref(NULL, E_WARNING, "Failed to write empty response to client: %s", strerror(errno));
-        } else if ((size_t)sent < strlen(response)) {
-            php_error_docref(NULL, E_WARNING, "Partial write occurred for empty response");
+            php_error_docref(NULL, E_WARNING, "Failed to send response to client");
         }
+        close(client_fd);
+        return;
     }
 
-    pthread_rwlock_unlock(&shm_rwlock);
+    smart_str json = {0};
+    smart_str_appendc(&json, '[');
+
+    for (size_t i = 0; i < reply->elements; i++) {
+        if (i > 0) {
+            smart_str_appendl(&json, ",\n", 2);
+        }
+        smart_str_appendc(&json, '"');
+        smart_str_appendl(&json, reply->element[i]->str, reply->element[i]->len);
+        smart_str_appendc(&json, '"');
+    }
+
+    smart_str_appendc(&json, ']');
+    smart_str_0(&json);
+
+    size_t total_sent = 0;
+    while (total_sent < json.s->len) {
+        ssize_t sent = write(client_fd, json.s->val + total_sent, json.s->len - total_sent);
+        if (sent < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        total_sent += sent;
+    }
+
+    smart_str_free(&json);
+    freeReplyObject(reply);
     close(client_fd);
 }
 

@@ -11,9 +11,6 @@
 #include <stdatomic.h>
 
 #define PHP_NECROFILE_VERSION "1.0.0"
-#define SHM_NAME "/necrofile_shared_memory"
-#define MAX_PATHS 100000
-#define MIN_SHM_SIZE (4 * 1024 * 1024)
 
 #if defined(__GNUC__) || defined(__clang__)
 #define ATOMIC_INCREMENT(ptr) __atomic_add_fetch(ptr, 1, __ATOMIC_SEQ_CST)
@@ -27,9 +24,10 @@ extern zend_module_entry necrofile_module_entry;
 #define phpext_necrofile_ptr &necrofile_module_entry
 
 ZEND_BEGIN_MODULE_GLOBALS(necrofile)
-    zend_long shm_size;
-    zend_long tcp_port;
+    char *redis_host;
+    zend_long redis_port;
     char *server_address;
+    zend_long tcp_port;
     char *exclude_patterns;
     char *trim_patterns;
 ZEND_END_MODULE_GLOBALS(necrofile)
